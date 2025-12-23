@@ -1,46 +1,68 @@
-# quiz.py
-from dataclasses import dataclass
-from typing import Tuple, List
+import json
+import random
+import urllib.request
+from html import unescape
 
-@dataclass(frozen=True)
-class Question:
-    prompt: str
-    options: Tuple[str, ...]
-    correct: str
+API_URL = "https://opentdb.com/api.php?amount=10"
 
-    def is_correct(self, chosen: str) -> bool:
-        return chosen == self.correct
+def get_questions():
+    with urllib.request.urlopen(API_URL, timeout=10) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    if data.get("response_code") != 0:
+        return []
+    return data["results"]
 
-class Quiz:
-    def __init__(self, questions: List[Question]) -> None:
-        self.questions = questions
-        self._correct_count = 0
+def make_q(item):
+    prompt = unescape(item.get("question", ""))
+    correct = unescape(item.get("correct_answer", ""))
+    incorrect = [unescape(x) for x in item.get("incorrect_answers", [])]
 
-    def run(self) -> None:
-        print("\n=== Quiz ===")
-        for idx, q in enumerate(self.questions, start=1):
-            print(f"\nQ{idx}. {q.prompt}")
-            for i, opt in enumerate(q.options, start=1):
-                print(f"  {i}) {opt}")
+    if item.get("type") == "boolean":
+        options = ["True", "False"]
+        correct = "True" if correct.lower() == "true" else "False"
+    else:
+        options = incorrect + [correct]
+        options = list(dict.fromkeys(options))
+        random.shuffle(options)
+    return prompt, options, correct
 
-            choice = self._ask_choice(len(q.options))
-            chosen_text = q.options[choice - 1]
+def ask(prompt, options):
+    print(prompt)
+    for i, opt in enumerate(options, 1):
+        print(f"  {i}) {opt}")
+    while True:
+        n = input("Enter choice number: ").strip()
+        if n.isdigit() and 1 <= int(n) <= len(options):
+            return options[int(n) - 1]
+        print(f"Please enter 1..{len(options)}")
 
-            if q.is_correct(chosen_text):
-                self._correct_count += 1
-                print("✅ Correct!")
-            else:
-                print(f"❌ Wrong. Correct: {q.correct}")
+def main():
+    print("Fetching questions...")
+    try:
+        items = get_questions()
+    except Exception as e:
+        print("Could not fetch questions:", e)
+        return
+    if not items:
+        print("No questions. Try again later.")
+        return
 
-        total = len(self.questions)
-        print("\n--- Quiz complete ---")
-        print(f"Score: {self._correct_count}/{total} ({(self._correct_count/total)*100:.1f}%)")
+    score = 0
+    for idx, it in enumerate(items, 1):
+        print(f"\nQ{idx}. ", end="")
+        prompt, options, correct = make_q(it)
+        choice = ask(prompt, options)
+        if choice == correct:
+            score += 1
+            print("Correct")
+        elif (choice == "exit"):
+            break
+        else:
+            print(f"Wrong (correct: {correct})")
 
-    def _ask_choice(self, count: int) -> int:
-        while True:
-            raw = input("Enter choice number: ").strip()
-            if raw.isdigit():
-                num = int(raw)
-                if 1 <= num <= count:
-                    return num
-            print(f"Please enter a number between 1 and {count}.")
+    total = len(items)
+    print("\n--- Done ---")
+    print(f"Score: {score}/{total} ({(score/total)*100:.1f}%)")
+
+if __name__ == "__main__":
+    main()
